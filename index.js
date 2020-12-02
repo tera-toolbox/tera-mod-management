@@ -6,6 +6,8 @@ const CoreModules = {
     "tera-game-state": "https://raw.githubusercontent.com/tera-toolbox/tera-game-state/master/module.json",
 };
 
+const readmeFileNames = ["readme.md", "readme.txt", "instructions.txt", "instructions.md"];
+
 // Installed module management
 function forcedirSync(dir) {
     const sep = path.sep;
@@ -85,22 +87,22 @@ function loadModuleInfo(rootFolder, name) {
     const modulePath = path.join(rootFolder, name);
 
     let result = {
-        'name': name.toLowerCase(),
-        'rawName': name,
-        'path': modulePath,
-        'category': 'network',
-        'author': null,
-        'description': null,
-        'version': null,
-        'donationUrl': null,
-        'options': {},
-        'drmKey': null,
-        'supportUrl': null,
-        'disabled': false,
-        'disableAutoUpdate': null,
-        'dependencies': [],
-        'conflicts': [],
-        'packets': {},
+        name: name.toLowerCase(),
+        rawName: name,
+        path: modulePath,
+        keywords: [],
+        author: null,
+        description: null,
+        version: null,
+        donationUrl: null,
+        options: {},
+        drmKey: null,
+        supportUrl: null,
+        disabled: false,
+        disableAutoUpdate: null,
+        dependencies: [],
+        conflicts: [],
+        packets: {},
     };
 
     const standalone = !fs.statSync(modulePath).isDirectory();
@@ -131,39 +133,54 @@ function loadModuleInfo(rootFolder, name) {
             moduleInfo = JSON.parse(moduleInfo);
 
             Object.assign(result, {
-                'type': 'regular',
-                'compatibility': 'compatible',
-                'category': moduleInfo.category || result.category,
-                'name': (moduleInfo.name || result.name).toLowerCase(),
-                'rawName': moduleInfo.name || result.rawName,
-                'author': moduleInfo.author || result.author,
-                'description': moduleInfo.description || result.description,
-                'version': moduleInfo.version || result.version,
-                'donationUrl': moduleInfo.donationUrl || result.donationUrl,
-                'options': moduleInfo.options || result.options,
-                'drmKey': moduleInfo.drmKey || result.drmKey,
-                'supportUrl': moduleInfo.supportUrl || result.supportUrl,
-                'dependencies': moduleInfo.dependencies ? Object.keys(moduleInfo.dependencies) : result.dependencies,
-                'conflicts': moduleInfo.conflicts || result.conflicts,
-                'disableAutoUpdate': !!moduleInfo.disableAutoUpdate,
-                'disabled': !!moduleInfo.disabled,
+                type: 'regular',
+                compatibility: 'compatible',
+                keywords: moduleInfo.keywords || result.keywords,
+                name: (moduleInfo.name || result.name).toLowerCase(),
+                rawName: moduleInfo.name || result.rawName,
+                author: moduleInfo.author || result.author,
+                description: moduleInfo.description || result.description,
+                version: moduleInfo.version || result.version,
+                donationUrl: moduleInfo.donationUrl || result.donationUrl,
+                options: moduleInfo.options || result.options,
+                drmKey: moduleInfo.drmKey || result.drmKey,
+                supportUrl: moduleInfo.supportUrl || result.supportUrl,
+                dependencies: moduleInfo.dependencies ? Object.keys(moduleInfo.dependencies) : result.dependencies,
+                conflicts: moduleInfo.conflicts || result.conflicts,
+                disableAutoUpdate: !!moduleInfo.disableAutoUpdate,
+                disabled: !!moduleInfo.disabled,
             });
 
-            if (!['network', 'client'].includes(result.category))
-                throw new Error(`Invalid mod category ${result.category}`);
+            // Legacy compatibility
+            if (result.options && result.options.niceName) {
+                if (global.TeraProxy.DevMode)
+                    console.warn(`module.json uses deprecated "options.niceName". Please use "options.cliName" instead (${result.rawName})`);
+                result.options.cliName = result.options.niceName;
+                delete result.options.niceName;
+            }
+
+            if (moduleInfo.category) {
+                if (!['network', 'client'].includes(moduleInfo.category))
+                    throw new Error(`Invalid mod category ${moduleInfo.category} (${result.rawName})`);
+
+                if (global.TeraProxy.DevMode)
+                    console.warn(`module.json uses deprecated "category". Please use "keywords" and the new mod interface instead (${result.rawName})`);
+
+                if (!result.keywords.includes(moduleInfo.category))
+                    result.keywords.push(moduleInfo.category);
+            } else {
+                if (!result.keywords.includes('network'))
+                    result.keywords.push('network');
+            }
 
             // Try to load required defs from manifest
-            if (moduleInfo.category === 'network') {
+            if (result.keywords.includes('network')) {
                 let moduleManifest = null;
                 try {
-                    moduleManifest = fs.readFileSync(path.join(modulePath, 'manifest.json'), 'utf8');
+                    moduleManifest = JSON.parse(fs.readFileSync(path.join(modulePath, 'manifest.json'), 'utf8'));
+                    result.packets = moduleManifest.defs || result.packets;
                 } catch (_) {
                     // Ignore
-                }
-
-                if (moduleManifest) {
-                    moduleManifest = JSON.parse(moduleManifest);
-                    result.packets = moduleManifest.defs || result.packets;
                 }
             }
 
@@ -180,6 +197,21 @@ function loadModuleInfo(rootFolder, name) {
                 result.disabled = moduleConfig.disabled !== undefined ? moduleConfig.disabled : result.disabled;
                 result.disableAutoUpdate = moduleConfig.disableAutoUpdate !== undefined ? moduleConfig.disableAutoUpdate : result.disableAutoUpdate;
                 result.drmKey = (moduleConfig.drmKey !== undefined && moduleConfig.drmKey !== null) ? moduleConfig.drmKey : result.drmKey;
+            }
+
+            // Try to detect readme file path
+            let moduleReadme = null;
+            try {
+                fs.readdirSync(modulePath).forEach(file => {
+                    if(readmeFileNames.indexOf(file.toLowerCase()) !== -1) moduleReadme = path.join(modulePath, file);
+                });
+
+            } catch (_) {
+                // Ignore
+            }
+
+            if (moduleReadme) {
+               result.readmePath = moduleReadme;
             }
         }
     }
